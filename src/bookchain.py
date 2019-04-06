@@ -3,16 +3,21 @@
 
 import configparser
 from hashlib import sha256
+import json
 import logging
 import os
 
 import requests
+from sqlalchemy.orm import sessionmaker
 
+from models import Block, DATABASE_ENGINE
+
+Session = sessionmaker(bind=DATABASE_ENGINE)
 
 MODULE_PARENT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
 config = configparser.ConfigParser()
-config.read(os.path.join(MODULE_PARENT_DIRECTORY, 'config.ini'))
+config.read(os.path.join(MODULE_PARENT_DIRECTORY, 'settings.ini'))
 
 logger = logging.getLogger()
 
@@ -29,26 +34,36 @@ class Bookchain:
 
     _auth_dict = None
 
-    def __init__(self, save_new_block=None, get_all_blocks=None):
-        if save_new_block:
-            self.save_block = save_new_block
-
-        if get_all_blocks:
-            self.get_all_blocks = get_all_blocks
+    def start(self):
+        self.register()
 
     def register(self):
         response = requests.get(
-            '{host}:{port}/register'.format(
+            'http://{host}:{port}/register'.format(
                 host=QUEUE_ROUTER_HOST,
                 port=QUEUE_ROUTER_PORT
             )
         )
-        self.identity = response.json()['identity']
-        self.token = self._generate_token(**response.json())
+
+        response_data = response.json()
+        self.identity = response_data.get('identity')
+        self.token = self._generate_token(**response_data)
+
+        if response.status_code == 200:
+            message = '/register request succeded. Identity: {identity}'.format(
+                identity=self.identity
+            )
+            print(message)  # For ease of debugging
+            logger.info(message)
+        else:
+            message = '/register request failed. Status code: {code}'.format(
+                code=response.status_code
+            )
+            logger.error(message)
 
     def consume_queue(self):
         response = requests.get(
-            '{host}:{port}/dequeue?identity={id}&token{token}'.format(
+            'http://{host}:{port}/dequeue?identity={id}&token={token}'.format(
                 host=QUEUE_ROUTER_HOST,
                 port=QUEUE_ROUTER_PORT,
                 id=self.identity,
@@ -61,42 +76,55 @@ class Bookchain:
             if message['type'] == 'ADD_BLOCK':
                 self.save_block(message['block'])
 
-            elif message['type'] == 'RESPOND_BLOCKS':
+            elif message['type'] == 'REQUEST_BLOCKS':
                 self.send_all_blocks(message['sender_address'])
 
         elif response.status_code == 404:
-            logger.info(
-                'No data to dequeue Status code: {code}'.format(
-                    code=response.status_code
-                )
+            message = 'No data to dequeue Status code: {code}'.format(
+                code=response.status_code
             )
+            print(message)  # For ease of debugging
+            logger.info(message)
 
         else:
-            logger.error(
-                '/dequeue request failed. Status code: {code}'.format(
-                    code=response.status_code
-                )
+            message = '/dequeue request failed. Status code: {code}'.format(
+                code=response.status_code
             )
+            print(message)  # For ease of debugging
+            logger.info(message)
 
     def send_all_blocks(self, address):
         post_data = self.get_auth_dict()
         post_data.update(
             address=address,
-            data=self.get_all_blocks()
+            data=json.dumps(
+                {
+                    'type': 'RESPOND_BLOCKS',
+                    'sender_address': self.identity,
+                    'blocks': self.get_all_blocks(),
+                }
+            ),
         )
         response = requests.post(
-            '{host}:{port}/enqueue'.format(
+            'http://{host}:{port}/enqueue'.format(
                 host=QUEUE_ROUTER_HOST,
                 port=QUEUE_ROUTER_PORT
             ),
             data=post_data
         )
-        if not response.status_code == 200:
-            logger.error(
-                '/enqueue request failed. Status code: {code}'.format(
-                    code=response.status_code
-                )
+        if response.status_code == 200:
+
+            message = '/enqueue request succeded. JSON payload: {data}'.format(
+                data=post_data
             )
+            print(message)  # For ease of debugging
+            logger.info(message)
+
+        else:
+            message = '/enqueue request failed. Status code: {code}'.format(
+                code=response.status_code
+            )
+            logger.error(message)
 
     def get_auth_dict(self):
         if not self._auth_dict:
@@ -121,3 +149,24 @@ class Bookchain:
                 timestamp=epoch
             ).encode('utf-8')
         ).hexdigest()
+
+
+class DatabaseBackedBookchain(Bookchain):
+
+    def save_block(self, block):
+        session = Session()
+        block = Block(**block)
+        session.add(block)
+        session.commit()
+
+    def get_all_blocks(self):
+        session = Session()
+        blocks = session.query(Block).order_by(Block.id)
+        return [
+            {
+                'hash': block.hash,
+                'timestamp': block.timestamp,
+                'text': block.text,
+            }
+            for block in blocks
+        ]

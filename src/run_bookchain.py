@@ -5,12 +5,13 @@
 import sched
 import time
 
-from bookchain import Bookchain, config
+from bookchain import DatabaseBackedBookchain, config
 
-DEQUEUE_INTERVAL = config['BOOKCHAIN']['dequeue_interval']
+DEQUEUE_INTERVAL = float(config['BOOKCHAIN']['dequeue_interval'])
 
 
-bookchain = Bookchain()
+bookchain = DatabaseBackedBookchain()
+bookchain.start()
 scheduler = sched.scheduler(time.time, time.sleep)
 
 
