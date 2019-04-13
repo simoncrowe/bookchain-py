@@ -8,11 +8,6 @@ import logging
 import os
 
 import requests
-from sqlalchemy.orm import sessionmaker
-
-from models import Block, DATABASE_ENGINE
-
-Session = sessionmaker(bind=DATABASE_ENGINE)
 
 MODULE_PARENT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
@@ -38,11 +33,13 @@ class Bookchain:
         self.register()
 
     def register(self):
+        print('Attempting to register...')
         response = requests.get(
             'http://{host}:{port}/register'.format(
                 host=QUEUE_ROUTER_HOST,
                 port=QUEUE_ROUTER_PORT
-            )
+            ),
+            timeout=3
         )
 
         response_data = response.json()
@@ -149,24 +146,3 @@ class Bookchain:
                 timestamp=epoch
             ).encode('utf-8')
         ).hexdigest()
-
-
-class DatabaseBackedBookchain(Bookchain):
-
-    def save_block(self, block):
-        session = Session()
-        block = Block(**block)
-        session.add(block)
-        session.commit()
-
-    def get_all_blocks(self):
-        session = Session()
-        blocks = session.query(Block).order_by(Block.id)
-        return [
-            {
-                'hash': block.hash,
-                'timestamp': block.timestamp,
-                'text': block.text,
-            }
-            for block in blocks
-        ]

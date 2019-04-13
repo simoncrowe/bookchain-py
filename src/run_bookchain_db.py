@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Simple periodical process removes unused queues."""
+"""Runs a 'dumb' Bookchain node backed by a database.
+This effectively acts as a server."""
 
 import sched
 import time
 
-from bookchain import DatabaseBackedBookchain, config
+from bookchain.core import config
+from bookchain.database import DatabaseBackedBookchain
 
 DEQUEUE_INTERVAL = float(config['BOOKCHAIN']['dequeue_interval'])
 
