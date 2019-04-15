@@ -17,7 +17,6 @@ config.read(os.path.join(MODULE_PARENT_DIRECTORY, 'settings.ini'))
 logger = logging.getLogger()
 
 QUEUE_ROUTER_HOST = config['QUEUE_ROUTER']['host']
-QUEUE_ROUTER_PORT = config['QUEUE_ROUTER']['port']
 
 
 class Bookchain:
@@ -35,9 +34,8 @@ class Bookchain:
     def register(self):
         print('Attempting to register...')
         response = requests.get(
-            'http://{host}:{port}/register'.format(
+            'http://{host}/register'.format(
                 host=QUEUE_ROUTER_HOST,
-                port=QUEUE_ROUTER_PORT
             ),
             timeout=3
         )
@@ -60,9 +58,8 @@ class Bookchain:
 
     def consume_queue(self):
         response = requests.get(
-            'http://{host}:{port}/dequeue?identity={id}&token={token}'.format(
+            'http://{host}/dequeue?identity={id}&token={token}'.format(
                 host=QUEUE_ROUTER_HOST,
-                port=QUEUE_ROUTER_PORT,
                 id=self.identity,
                 token=self.token,
             )
@@ -71,7 +68,18 @@ class Bookchain:
             message = response.json()
 
             if message['type'] == 'ADD_BLOCK':
-                self.save_block(message['block'])
+                block = message['block']
+                if (
+                        not self.blocks or
+                        self._get_block_hash(self.blocks[-1]) == block['hash']
+                ):
+                    self.save_block(message['block'])
+                else:
+                    message = 'Hash mismatch! Block ignored: {block}'.format(
+                        block=block
+                    )
+                    print(message)  # For ease of debugging
+                    logger.info(message)
 
             elif message['type'] == 'REQUEST_BLOCKS':
                 self.send_all_blocks(message['sender_address'])
@@ -103,9 +111,8 @@ class Bookchain:
             ),
         )
         response = requests.post(
-            'http://{host}:{port}/enqueue'.format(
+            'http://{host}/enqueue'.format(
                 host=QUEUE_ROUTER_HOST,
-                port=QUEUE_ROUTER_PORT
             ),
             data=post_data
         )
@@ -145,4 +152,13 @@ class Bookchain:
                 id=identity,
                 timestamp=epoch
             ).encode('utf-8')
+        ).hexdigest()
+
+    @staticmethod
+    def _get_block_hash(block):
+        return sha256('{hash}{text}{timestamp}'.format(
+                hash=block['hash'] if block['hash'] else 'null',
+                text=block['text'],
+                timestamp=block['timestamp']
+            ).encode()
         ).hexdigest()
