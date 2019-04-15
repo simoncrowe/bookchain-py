@@ -22,6 +22,8 @@ QUEUE_ROUTER_HOST = config['QUEUE_ROUTER']['host']
 class Bookchain:
     """Basic consume-only bookchain node."""
 
+    validate_hashes = False
+
     identity = None
     token = None
     blocks = []
@@ -69,17 +71,20 @@ class Bookchain:
 
             if message['type'] == 'ADD_BLOCK':
                 block = message['block']
-                if (
-                        not self.blocks or
-                        self._get_block_hash(self.blocks[-1]) == block['hash']
-                ):
-                    self.save_block(message['block'])
+                if self.validate_hashes:
+                    if (
+                            not self.blocks or
+                            self._get_block_hash(self.blocks[-1]) == block['hash']
+                    ):
+                        self.save_block(message['block'])
+                    else:
+                        message = 'Hash mismatch! Block ignored: {block}'.format(
+                            block=block
+                        )
+                        print(message)  # For ease of debugging
+                        logger.info(message)
                 else:
-                    message = 'Hash mismatch! Block ignored: {block}'.format(
-                        block=block
-                    )
-                    print(message)  # For ease of debugging
-                    logger.info(message)
+                    self.save_block(message['block'])
 
             elif message['type'] == 'REQUEST_BLOCKS':
                 self.send_all_blocks(message['sender_address'])

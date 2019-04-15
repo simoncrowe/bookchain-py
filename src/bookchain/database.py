@@ -10,6 +10,8 @@ Session = sessionmaker(bind=DATABASE_ENGINE)
 
 class DatabaseBackedBookchain(Bookchain):
 
+    validate_hashes = True
+
     def save_block(self, block):
         session = Session()
         block = Block(**block)
